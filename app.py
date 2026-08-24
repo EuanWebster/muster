@@ -82,6 +82,20 @@ def check_status(entry: dict) -> str:
     return "unknown"
 
 
+def capabilities(entry: dict) -> dict:
+    """Whether Start/Stop have any real action for this entry - mirrors the
+    dispatch logic in api_start/api_stop exactly, without running anything.
+    Lets the UI hide/replace buttons that would just error on click."""
+    kind = entry.get("kind")
+    can_start = kind in ("systemd-system", "systemd-user", "docker-compose", "docker-container") or (
+        kind == "process" and bool(entry.get("start_cmd"))
+    )
+    can_stop = kind in ("systemd-system", "systemd-user", "docker-compose", "docker-container") or (
+        kind == "process" and bool(entry.get("stop_cmd") or entry.get("status_cmd"))
+    )
+    return {"can_start": can_start, "can_stop": can_stop}
+
+
 def check_boot_enabled(entry: dict) -> str | None:
     """Returns a short human label if this tool is set to start at boot/login, else None.
 
@@ -150,6 +164,7 @@ def api_tools():
         e["port_open"] = port_open(e.get("host") or "127.0.0.1", e.get("port")) if e.get("port") else None
         e["models"] = get_models(e)
         e["boot_enabled"] = check_boot_enabled(e)
+        e.update(capabilities(e))
     return jsonify(entries)
 
 

@@ -43,6 +43,7 @@
   .meta.url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .meta.url a { color: inherit; }
   .meta.boot { color: var(--models-fg); }
+  .meta.hint { margin-top: 0.6rem; font-style: italic; }
   .models { font-size: 0.78rem; color: var(--models-fg); max-height: 10em; overflow-y: auto; }
   .actions { margin-top: 0.6rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
   .actions button { font-size: 0.78rem; padding: 0.3rem 0.5rem; }
@@ -236,6 +237,12 @@ function renderActiveTab() {
   grid.innerHTML = `<div class="grid">${tools.map(renderCard).join('')}</div>`;
 }
 
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s == null ? '' : s;
+  return div.innerHTML;
+}
+
 function renderCard(t) {
   const statusClass = (t.status || 'unknown').replace('/', '\\/');
   return `
@@ -246,11 +253,12 @@ function renderCard(t) {
       ${t.launch_url ? `<div class="meta url"><a href="${t.launch_url}" target="_blank">${t.launch_url}</a></div>` : ''}
       ${t.model_scan !== 'none' ? `<div class="models">${(t.models || []).map(m => '- ' + m).join('<br>') || '<i>no models found</i>'}</div>` : ''}
       <div class="actions">
-        <button onclick="start('${t.id}')">Start</button>
-        <button onclick="stop('${t.id}')">Stop</button>
+        ${t.can_start ? `<button onclick="start('${t.id}')">Start</button>` : ''}
+        ${t.can_stop ? `<button onclick="stop('${t.id}')">Stop</button>` : ''}
         ${t.launch_url ? `<button onclick="launch('${t.id}')">Launch</button>` : ''}
         <button class="danger" onclick="uninstallPreview('${t.id}')">Uninstall</button>
       </div>
+      ${(!t.can_start || !t.can_stop) && t.notes ? `<div class="meta hint">ℹ ${escapeHtml(t.notes)}</div>` : ''}
     </div>`;
 }
 
