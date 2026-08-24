@@ -6,6 +6,7 @@ what tools exist; status is always checked live, never cached.
 import json
 import os
 import shlex
+import shutil
 import socket
 import subprocess
 import time
@@ -284,6 +285,34 @@ def api_launch(tool_id):
     if not entry or not entry.get("launch_url"):
         return jsonify({"error": "no launch url"}), 404
     return jsonify({"launch_url": entry["launch_url"]})
+
+
+@app.route("/api/tools/<tool_id>/launch_terminal", methods=["POST"])
+def api_launch_terminal(tool_id):
+    entries = load_registry()
+    entry = next((e for e in entries if e["id"] == tool_id), None)
+    if not entry or not entry.get("launch_cmd"):
+        return jsonify({"error": "no launch_cmd for this tool"}), 404
+    # Keep the window open after the command exits (fast exit/error shouldn't
+    # just vanish the terminal before you can read it). Passed as separate
+    # argv elements (via "--") rather than one shell string, so nothing here
+    # needs manual quote-escaping.
+    #
+    # x-terminal-emulator (the Debian alternatives wrapper) does NOT reliably
+    # forward args past "--" on this system - verified by hand: the tab opens
+    # but lands on a bare shell prompt, command never runs. Calling
+    # gnome-terminal directly does work (verified: a `sleep 60` marker showed
+    # up as a real child process). Prefer it when present, fall back to the
+    # wrapper for other desktops - may have the same issue there, untested.
+    terminal = shutil.which("gnome-terminal") or shutil.which("x-terminal-emulator")
+    if not terminal:
+        return jsonify({"error": "no terminal emulator found (looked for gnome-terminal, x-terminal-emulator)"}), 500
+    inner = f"{entry['launch_cmd']}; echo; echo '[exited - press Enter to close]'; read"
+    try:
+        subprocess.Popen([terminal, "--", "bash", "-c", inner], cwd=Path.home(), start_new_session=True)
+    except FileNotFoundError:
+        return jsonify({"error": f"failed to launch {terminal}"}), 500
+    return jsonify({"ok": True})
 
 
 @app.route("/api/scan")

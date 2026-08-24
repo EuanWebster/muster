@@ -62,6 +62,7 @@
     "id": "my-cli-tool",
     "category": "agent-cli",
     "kind": "manual",
+    "launch_cmd": "my-cli-tool",
     "port": null,
     "launch_url": null,
     "model_dir": null,
@@ -69,6 +70,6 @@
     "install_paths": ["~/.local/bin/my-cli-tool"],
     "config_paths": ["~/.my-cli-tool/config.yaml"],
     "uninstall_cmds": ["rm -f ~/.local/bin/my-cli-tool", "rm -rf ~/.my-cli-tool"],
-    "notes": "Example entry for a CLI tool with no running service - status always shows n/a."
+    "notes": "Example entry for a CLI tool with no running service - status always shows n/a. launch_cmd opens it in a new terminal window instead."
   }
 ]

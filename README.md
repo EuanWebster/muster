@@ -50,6 +50,18 @@ the container's restart policy (`always`/`unless-stopped`) for the two
 Docker kinds. `process`/`manual` entries have no generic equivalent, since
 that would need a separate systemd unit of their own that isn't modeled here.
 
+A `process` or `manual` entry can also set `launch_cmd` (e.g. `"lazydocker"`)
+for tools that are only usable interactively in a terminal — no web UI to
+open. This adds a **Launch in Terminal** button that opens a real terminal
+window running that command, using `gnome-terminal` directly if present
+(the generic `x-terminal-emulator` alternatives wrapper doesn't reliably
+forward arguments past `--` on every system, so it's a fallback, not the
+default). This is different from `launch_url`, which just opens a browser
+tab — use whichever one actually matches how the tool is used; several CLI
+tools (e.g. `dsh`, `hermes-agent`) turn out to have their own local web
+dashboards worth wiring up as `process` entries with a real `launch_url`
+instead of treating them as bare unlaunchable CLIs.
+
 Add entries by hand, or click **Scan for new tools** in the UI to find
 candidates (Docker containers and executables in `~/.local/bin` not already
 tracked) and add them with one click — nothing is ever added automatically.

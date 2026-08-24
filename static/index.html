@@ -256,6 +256,7 @@ function renderCard(t) {
         ${t.can_start ? `<button onclick="start('${t.id}')">Start</button>` : ''}
         ${t.can_stop ? `<button onclick="stop('${t.id}')">Stop</button>` : ''}
         ${t.launch_url ? `<button onclick="launch('${t.id}')">Launch</button>` : ''}
+        ${t.launch_cmd ? `<button onclick="launchTerminal('${t.id}')">Launch in Terminal</button>` : ''}
         <button class="danger" onclick="uninstallPreview('${t.id}')">Uninstall</button>
       </div>
       ${(!t.can_start || !t.can_stop) && t.notes ? `<div class="meta hint">ℹ ${escapeHtml(t.notes)}</div>` : ''}
@@ -278,6 +279,12 @@ async function launch(id) {
   const r = await fetch(`/api/tools/${id}/launch`);
   const j = await r.json();
   if (j.launch_url) window.open(j.launch_url, '_blank');
+}
+
+async function launchTerminal(id) {
+  const r = await fetch(`/api/tools/${id}/launch_terminal`, {method: 'POST'});
+  const j = await r.json();
+  if (j.error) alert(`Couldn't open a terminal: ${j.error}`);
 }
 
 function suggestRegistryEntry(candidate) {
