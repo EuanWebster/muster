@@ -1,0 +1,675 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Muster</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚩</text></svg>">
+<style>
+  :root {
+    --bg: #111; --fg: #eee; --card-bg: #1b1b1b; --border: #333; --border-strong: #444;
+    --muted: #aaa; --muted2: #999; --btn-bg: #2a2a2a; --btn-hover: #383838;
+    --danger-border: #a33; --danger-fg: #f88; --models-fg: #9c9; --code-bg: #111;
+    --backdrop: #000a;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f5f5f5; --fg: #1a1a1a; --card-bg: #fff; --border: #ddd; --border-strong: #ccc;
+      --muted: #555; --muted2: #666; --btn-bg: #eee; --btn-hover: #e0e0e0;
+      --danger-border: #c55; --danger-fg: #a33; --models-fg: #2a7; --code-bg: #f0f0f0;
+      --backdrop: #0004;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f5f5; --fg: #1a1a1a; --card-bg: #fff; --border: #ddd; --border-strong: #ccc;
+    --muted: #555; --muted2: #666; --btn-bg: #eee; --btn-hover: #e0e0e0;
+    --danger-border: #c55; --danger-fg: #a33; --models-fg: #2a7; --code-bg: #f0f0f0;
+    --backdrop: #0004;
+  }
+  body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg); margin: 0; padding: 1.5rem; }
+  h1 { font-size: 1.3rem; display: flex; align-items: center; justify-content: space-between; }
+  .toolbar { margin-bottom: 1rem; display: flex; gap: 0.5rem; }
+  button { background: var(--btn-bg); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; padding: 0.4rem 0.8rem; cursor: pointer; }
+  button:hover { background: var(--btn-hover); }
+  button.danger { border-color: var(--danger-border); color: var(--danger-fg); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1rem; }
+  .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1.1rem; }
+  .card h3 { margin: 0 0 0.3rem; display: flex; align-items: center; gap: 0.4rem; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .dot.running { background: #4c4; }
+  .dot.stopped { background: #888; }
+  .dot.n\/a { background: #666; }
+  .dot.unknown { background: #c94; }
+  .meta { font-size: 0.82rem; color: var(--muted); margin: 0.2rem 0; }
+  .meta.url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta.url a { color: inherit; }
+  .models { font-size: 0.78rem; color: var(--models-fg); max-height: 10em; overflow-y: auto; }
+  .actions { margin-top: 0.6rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+  .actions button { font-size: 0.78rem; padding: 0.3rem 0.5rem; }
+  #candidates, #queryAnswer { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.9rem; margin-top: 1rem; }
+  .query-question { font-weight: 600; margin-bottom: 0.6rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+  #queryAnswer { max-height: 60vh; overflow-y: auto; }
+  .query-entry { margin-bottom: 1.2rem; }
+  .query-entry:last-child { margin-bottom: 0; }
+  .modal-backdrop { position: fixed; inset: 0; background: var(--backdrop); display: flex; align-items: center; justify-content: center; }
+  .modal { background: var(--card-bg); border: 1px solid var(--border-strong); border-radius: 8px; padding: 1.2rem; width: min(500px, 92vw); box-sizing: border-box; max-height: 85vh; overflow-y: auto; }
+  .modal * { min-width: 0; }
+  .modal input, .modal select { box-sizing: border-box; }
+  pre { white-space: pre-wrap; font-size: 0.78rem; background: var(--code-bg); padding: 0.5rem; border-radius: 4px; }
+  #queryBox { width: 100%; box-sizing: border-box; padding: 0.5rem; background: var(--card-bg); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; }
+  input[type=text], input:not([type]), input[type=password], select, textarea {
+    background: var(--card-bg); color: var(--fg); border: 1px solid var(--border-strong);
+    border-radius: 4px; padding: 0.35rem 0.5rem; font-family: inherit; font-size: 0.85rem;
+  }
+  .tabs { display: flex; gap: 0.3rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tabs button { background: transparent; border: 1px solid var(--border); color: var(--muted2); }
+  .tabs button.active { background: var(--btn-bg); color: var(--fg); border-color: var(--border-strong); }
+  .subheading { font-size: 0.85rem; color: var(--muted2); margin: 1rem 0 0.4rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  #themeToggle { font-size: 0.8rem; padding: 0.3rem 0.6rem; }
+  .models-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .models-table th { text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border-strong); color: var(--muted2); font-weight: 600; }
+  .models-table td { padding: 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .models-table td.path { color: var(--muted); font-family: monospace; font-size: 0.76rem; word-break: break-all; }
+</style>
+</head>
+<body>
+<h1>🚩 Muster <button id="themeToggle" onclick="toggleTheme()"></button></h1>
+<div class="toolbar">
+  <button onclick="refresh()">Refresh</button>
+  <button onclick="scan()">Scan for new tools</button>
+  <button onclick="syncObsidian()">Sync to Obsidian</button>
+  <button onclick="openSettings()">⚙ Settings</button>
+</div>
+<div id="tabs" class="tabs"></div>
+<div id="grid"></div>
+<div id="candidates" style="display:none"></div>
+
+<div id="commonQuestions" style="margin-top:1rem; display:flex; gap:0.4rem; flex-wrap:wrap"></div>
+<div id="queryAnswer" style="display:none"></div>
+<div style="margin-top:1rem; display:flex; gap:0.5rem; align-items:flex-start">
+  <textarea id="queryBox" rows="2" placeholder="Ask about your tools/models (e.g. 'what depends on unsloth studio?')" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();ask();}" style="flex:1"></textarea>
+  <select id="backendSelect" style="align-self:stretch"></select>
+</div>
+<div style="margin-top:0.4rem; display:flex; gap:0.5rem; align-items:center">
+  <button id="askBtn" onclick="ask()">Ask</button>
+  <select id="questionHistorySelect" style="font-size:0.78rem">
+    <option value="">Past questions...</option>
+  </select>
+  <button onclick="clearResponse()" style="font-size:0.78rem">Clear response</button>
+  <button onclick="clearQuestionHistory()" style="font-size:0.78rem">Clear question history</button>
+</div>
+
+<div id="modalRoot"></div>
+
+<script>
+function applyTheme(theme) {
+  // theme: "light" | "dark" | null (null = follow system, no override attribute)
+  if (theme) document.documentElement.setAttribute('data-theme', theme);
+  else document.documentElement.removeAttribute('data-theme');
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const isDark = theme ? theme === 'dark' : systemDark;
+  document.getElementById('themeToggle').textContent = isDark ? '☀️ Light' : '🌙 Dark';
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const currentlyDark = current ? current === 'dark' : systemDark;
+  const next = currentlyDark ? 'light' : 'dark';
+  localStorage.setItem('theme', next);
+  applyTheme(next);
+}
+
+applyTheme(localStorage.getItem('theme'));
+
+let backendsCache = [];
+let commonQuestionsCache = [];
+
+async function loadBackends() {
+  const r = await fetch('/api/backends');
+  const data = await r.json();
+  backendsCache = data.backends;
+  commonQuestionsCache = data.common_questions || [];
+  const select = document.getElementById('backendSelect');
+  const saved = localStorage.getItem('backend') || data.default_backend || 'auto';
+  select.innerHTML = '<option value="auto">Auto</option>' +
+    data.backends.map(b => `<option value="${b.id}">${b.label}</option>`).join('');
+  select.value = [...select.options].some(o => o.value === saved) ? saved : 'auto';
+  select.onchange = () => localStorage.setItem('backend', select.value);
+  renderCommonQuestions();
+}
+
+// Category -> tab. Multiple categories can share a tab (e.g. image-gen/video-gen).
+// Anything with a "project" field is pulled out into the Projects tab instead,
+// regardless of category, and grouped there by project name.
+const CATEGORY_TABS = [
+  { key: 'llm-runtime', label: 'Runtimes' },
+  { key: 'agent-cli', label: 'Agent CLIs' },
+  { key: 'chat-ui', label: 'Chat UI' },
+  { key: 'image-gen', label: 'Image/Video Gen' },
+  { key: 'video-gen', label: 'Image/Video Gen' },
+  { key: 'own-tooling', label: 'Own Tooling' },
+  { key: 'infra', label: 'Infra' },
+];
+const PROJECTS_TAB = 'Projects';
+const MODELS_TAB = 'Models';
+
+let allTools = [];
+let allModels = [];
+let activeTab = null;
+
+async function refresh() {
+  const [toolsRes, modelsRes] = await Promise.all([fetch('/api/tools'), fetch('/api/models')]);
+  allTools = await toolsRes.json();
+  allModels = await modelsRes.json();
+  renderTabs();
+  renderActiveTab();
+}
+
+function tabForTool(t) {
+  if (t.project) return PROJECTS_TAB;
+  const match = CATEGORY_TABS.find(c => c.key === t.category);
+  return match ? match.label : 'Other';
+}
+
+function renderTabs() {
+  const labels = [];
+  for (const t of allTools) {
+    const label = tabForTool(t);
+    if (!labels.includes(label)) labels.push(label);
+  }
+  // stable order: category tabs in declared order, then Other, then Projects, then Models last
+  const order = [...new Set(CATEGORY_TABS.map(c => c.label))].filter(l => labels.includes(l));
+  if (labels.includes('Other')) order.push('Other');
+  if (labels.includes(PROJECTS_TAB)) order.push(PROJECTS_TAB);
+  order.push(MODELS_TAB);
+
+  if (!activeTab || !order.includes(activeTab)) activeTab = order[0];
+
+  const tabsEl = document.getElementById('tabs');
+  tabsEl.innerHTML = order.map(label =>
+    `<button class="${label === activeTab ? 'active' : ''}" onclick="switchTab('${label}')">${label}</button>`
+  ).join('');
+}
+
+function switchTab(label) {
+  activeTab = label;
+  renderTabs();
+  renderActiveTab();
+}
+
+function renderActiveTab() {
+  const grid = document.getElementById('grid');
+
+  if (activeTab === MODELS_TAB) {
+    grid.innerHTML = `
+      <div style="overflow-x:auto">
+      <table class="models-table">
+        <thead><tr><th>Model</th><th>Source</th><th>Used in</th><th>Size</th><th>Path</th></tr></thead>
+        <tbody>
+          ${allModels.map(m => `
+            <tr>
+              <td>${m.name}</td>
+              <td>${m.source}</td>
+              <td>${m.used_in.length ? m.used_in.join(', ') : '<i>none</i>'}</td>
+              <td>${m.size_display}</td>
+              <td class="path">${m.path}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>`;
+    return;
+  }
+
+  const tools = allTools.filter(t => tabForTool(t) === activeTab);
+
+  if (activeTab === PROJECTS_TAB) {
+    const projects = [...new Set(tools.map(t => t.project))].sort();
+    grid.innerHTML = projects.map(p =>
+      `<div class="subheading">${p}</div><div class="grid">` +
+      tools.filter(t => t.project === p).map(renderCard).join('') +
+      `</div>`
+    ).join('');
+    return;
+  }
+
+  grid.innerHTML = `<div class="grid">${tools.map(renderCard).join('')}</div>`;
+}
+
+function renderCard(t) {
+  const statusClass = (t.status || 'unknown').replace('/', '\\/');
+  return `
+    <div class="card">
+      <h3><span class="dot ${statusClass}"></span> ${t.id}</h3>
+      <div class="meta">${t.category} · ${t.status}${t.port ? ' · port ' + t.port + (t.port_open ? ' (open)' : ' (closed)') : ''}</div>
+      ${t.launch_url ? `<div class="meta url"><a href="${t.launch_url}" target="_blank">${t.launch_url}</a></div>` : ''}
+      ${t.model_scan !== 'none' ? `<div class="models">${(t.models || []).map(m => '- ' + m).join('<br>') || '<i>no models found</i>'}</div>` : ''}
+      <div class="actions">
+        <button onclick="start('${t.id}')">Start</button>
+        <button onclick="stop('${t.id}')">Stop</button>
+        ${t.launch_url ? `<button onclick="launch('${t.id}')">Launch</button>` : ''}
+        <button class="danger" onclick="uninstallPreview('${t.id}')">Uninstall</button>
+      </div>
+    </div>`;
+}
+
+async function start(id) {
+  const r = await fetch(`/api/tools/${id}/start`, {method: 'POST'});
+  const j = await r.json();
+  if (j.error) alert(`Failed to start ${id}:\n\n${j.error}`);
+  refresh();
+}
+async function stop(id) {
+  const r = await fetch(`/api/tools/${id}/stop`, {method: 'POST'});
+  const j = await r.json();
+  if (j.error) alert(`Failed to stop ${id}:\n\n${j.error}`);
+  refresh();
+}
+async function launch(id) {
+  const r = await fetch(`/api/tools/${id}/launch`);
+  const j = await r.json();
+  if (j.launch_url) window.open(j.launch_url, '_blank');
+}
+
+function suggestRegistryEntry(candidate) {
+  const id = candidate.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (candidate.type === 'docker-container') {
+    return {
+      id, category: 'uncategorized', kind: 'docker-container', container: candidate.name,
+      port: null, launch_url: null, model_dir: null, model_scan: 'none',
+      install_paths: [], config_paths: [],
+      uninstall_cmds: [`docker rm -f ${candidate.name}`],
+      notes: `Discovered via scan (image: ${candidate.image}).`,
+    };
+  }
+  return {
+    id, category: 'uncategorized', kind: 'manual',
+    port: null, launch_url: null, model_dir: null, model_scan: 'none',
+    install_paths: [candidate.path], config_paths: [],
+    uninstall_cmds: [`rm -f ${candidate.path}`],
+    notes: 'Discovered via scan.',
+  };
+}
+
+async function addCandidateToRegistry(candidate, btn) {
+  const entry = suggestRegistryEntry(candidate);
+  btn.disabled = true;
+  btn.textContent = 'Adding...';
+  const r = await fetch('/api/registry/add', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(entry)
+  });
+  const j = await r.json();
+  if (j.error) {
+    alert(`Couldn't add: ${j.error}`);
+    btn.disabled = false;
+    btn.textContent = 'Add to registry';
+    return;
+  }
+  btn.closest('.candidate-row').innerHTML = `Added as <b>${entry.id}</b> (category: uncategorized, kind: ${entry.kind}) - edit registry.json to refine.`;
+  refresh();
+}
+
+function closeCandidates() {
+  const box = document.getElementById('candidates');
+  box.style.display = 'none';
+  box.innerHTML = '';
+}
+
+async function scan() {
+  const r = await fetch('/api/scan');
+  const candidates = await r.json();
+  const box = document.getElementById('candidates');
+  box.style.display = 'block';
+  const header = document.createElement('div');
+  header.style.cssText = 'display:flex; justify-content:space-between; align-items:center';
+  header.innerHTML = '<h3 style="margin:0">Unregistered candidates</h3>';
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.style.fontSize = '0.78rem';
+  closeBtn.onclick = closeCandidates;
+  header.appendChild(closeBtn);
+
+  if (!candidates.length) {
+    box.innerHTML = '';
+    box.appendChild(header);
+    box.insertAdjacentHTML('beforeend', '<i>No unregistered tools found.</i>');
+    return;
+  }
+  box.innerHTML = '';
+  box.appendChild(header);
+  candidates.forEach(c => {
+    const row = document.createElement('div');
+    row.className = 'candidate-row';
+    row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:0.3rem 0; border-bottom:1px solid var(--border)';
+    const label = document.createElement('span');
+    label.textContent = `${c.type}: ${c.name} ${c.image || c.path || ''}`;
+    const btn = document.createElement('button');
+    btn.textContent = 'Add to registry';
+    btn.style.fontSize = '0.78rem';
+    btn.onclick = () => addCandidateToRegistry(c, btn);
+    row.appendChild(label);
+    row.appendChild(btn);
+    box.appendChild(row);
+  });
+}
+
+async function syncObsidian() {
+  await fetch('/api/sync', {method: 'POST'});
+  alert('Synced to Obsidian vault.');
+}
+
+function uninstallPreview(id) {
+  fetch(`/api/tools/${id}/uninstall/preview`, {method: 'POST'})
+    .then(r => r.json())
+    .then(preview => showUninstallModal(id, preview));
+}
+
+function showUninstallModal(id, preview) {
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal">
+        <h3>Uninstall ${id}?</h3>
+        <p>This will run:</p>
+        <pre>${preview.uninstall_cmds.join('\n')}</pre>
+        <p>Paths/sizes affected:</p>
+        <pre>${JSON.stringify(preview.sizes, null, 2)}</pre>
+        <label><input type="checkbox" id="confirmCheck"> I understand this will run these commands</label>
+        <div class="actions" style="margin-top:0.8rem">
+          <button onclick="closeModal()">Cancel</button>
+          <button class="danger" onclick="confirmUninstall('${id}')">Confirm uninstall</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function closeModal() { document.getElementById('modalRoot').innerHTML = ''; }
+
+async function confirmUninstall(id) {
+  if (!document.getElementById('confirmCheck').checked) { alert('Check the confirmation box first.'); return; }
+  if (!confirm(`Really uninstall ${id}? This cannot be undone.`)) return;
+  await fetch(`/api/tools/${id}/uninstall/confirm`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({confirm_step: 1})
+  });
+  const r = await fetch(`/api/tools/${id}/uninstall/confirm`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({confirm_step: 2})
+  });
+  const result = await r.json();
+  closeModal();
+
+  if (!result.output) {
+    alert(`Uninstall failed: ${result.error || 'unknown error'}`);
+  } else {
+    const failed = result.output.filter(o => o.returncode !== 0);
+    if (failed.length === 0) {
+      alert(`${id} uninstalled successfully. All ${result.output.length} command(s) completed cleanly.`);
+    } else {
+      const details = failed.map(o => `  $ ${o.cmd}\n  ${o.stderr || o.stdout || '(no output)'}`).join('\n\n');
+      alert(`${id} removed from the dashboard, but ${failed.length} of ${result.output.length} command(s) reported an error (may be harmless, e.g. "already removed"):\n\n${details}`);
+    }
+  }
+  refresh();
+}
+
+function renderCommonQuestions() {
+  const container = document.getElementById('commonQuestions');
+  container.innerHTML = '';
+  for (const q of commonQuestionsCache) {
+    const btn = document.createElement('button');
+    btn.textContent = q;
+    btn.style.fontSize = '0.78rem';
+    btn.onclick = () => { document.getElementById('queryBox').value = q; ask(); };
+    container.appendChild(btn);
+  }
+}
+
+const MAX_QUESTION_HISTORY = 20;
+let questionHistory = JSON.parse(localStorage.getItem('questionHistory') || '[]');
+
+function saveQuestionHistory() {
+  localStorage.setItem('questionHistory', JSON.stringify(questionHistory));
+}
+
+function pushQuestionHistory(question) {
+  questionHistory = [question, ...questionHistory.filter(q => q !== question)].slice(0, MAX_QUESTION_HISTORY);
+  saveQuestionHistory();
+  renderQuestionHistorySelect();
+}
+
+function renderQuestionHistorySelect() {
+  const select = document.getElementById('questionHistorySelect');
+  select.innerHTML = '<option value="">Past questions...</option>' +
+    questionHistory.map(q => `<option value="${encodeURIComponent(q)}">${q}</option>`).join('');
+}
+
+function clearQuestionHistory() {
+  questionHistory = [];
+  saveQuestionHistory();
+  renderQuestionHistorySelect();
+}
+
+function clearResponse() {
+  const box = document.getElementById('queryAnswer');
+  box.style.display = 'none';
+  box.innerHTML = '';
+}
+
+document.getElementById('questionHistorySelect').addEventListener('change', (e) => {
+  if (!e.target.value) return;
+  document.getElementById('queryBox').value = decodeURIComponent(e.target.value);
+  e.target.value = '';
+  ask();
+});
+
+function renderAnswerBox(question, statusOrAnswerHtml) {
+  const box = document.getElementById('queryAnswer');
+  box.style.display = 'block';
+  box.innerHTML = `<div class="query-question">${question}</div>${statusOrAnswerHtml}`;
+}
+
+let currentAskAbort = null;
+
+async function askBackend(question, backend) {
+  currentAskAbort = new AbortController();
+  try {
+    const r = await fetch('/api/query', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question, backend}),
+      signal: currentAskAbort.signal,
+    });
+    if (!r.ok) {
+      let detail = '';
+      try { detail = (await r.json()).error || ''; } catch { /* body wasn't JSON */ }
+      return { answer: `Request failed (HTTP ${r.status}). ${detail}`, source: 'error' };
+    }
+    return await r.json();
+  } catch (err) {
+    if (err.name === 'AbortError') return { answer: 'Cancelled.', source: 'none' };
+    return { answer: `Request failed: ${err.message}. Is the dashboard server still running?`, source: 'error' };
+  }
+}
+
+function cancelAsk() {
+  if (currentAskAbort) currentAskAbort.abort();
+}
+
+async function ask() {
+  const queryBox = document.getElementById('queryBox');
+  const question = queryBox.value.trim();
+  if (!question) return;
+  queryBox.value = '';
+  const backend = document.getElementById('backendSelect').value;
+  pushQuestionHistory(question);
+
+  const askBtn = document.getElementById('askBtn');
+  askBtn.textContent = 'Cancel';
+  askBtn.onclick = cancelAsk;
+
+  try {
+    // Auto mode can try more than one local backend in sequence (each with its
+    // own ~2min budget) before it even asks about an external fallback - be
+    // upfront that the total wait can be longer than a single backend's cap.
+    const waitNote = backend === 'auto'
+      ? 'can take several minutes - auto mode may try more than one local backend'
+      : 'can take up to ~2 min if answering locally';
+    renderAnswerBox(question, `<i>Thinking... (${waitNote})</i>`);
+
+    let j = await askBackend(question, backend);
+
+    if (j.needs_confirmation) {
+      const ok = confirm(`${j.fallback_label} didn't get a local answer. Send this question to ${j.fallback_label} instead? This sends your query (including tool/vault context) to an external service.`);
+      if (!ok) {
+        renderAnswerBox(question, '<i>Cancelled - no external service was used.</i>');
+        return;
+      }
+      renderAnswerBox(question, `<i>Asking ${j.fallback_label}...</i>`);
+      j = await askBackend(question, j.fallback_backend);
+    }
+
+    renderAnswerBox(question, `<b>[${j.source}]</b><br>${(j.answer || '').replace(/\n/g, '<br>')}`);
+  } finally {
+    askBtn.textContent = 'Ask';
+    askBtn.onclick = ask;
+    currentAskAbort = null;
+  }
+}
+
+function openSettings() {
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal" style="width:min(560px, 92vw)">
+        <h3>Settings - Query Backends</h3>
+        <div id="backendRows"></div>
+        <button onclick="addBackendRow()" style="margin-top:0.6rem">+ Add backend</button>
+
+        <h3 style="margin-top:1.5rem">Common Questions <span style="font-weight:400; font-size:0.78rem; color:var(--muted)">(shown as quick-click buttons, up to 10)</span></h3>
+        <div id="commonQuestionRows"></div>
+        <button id="addCommonQuestionBtn" onclick="addCommonQuestionRow()" style="margin-top:0.6rem">+ Add question</button>
+
+        <div class="actions" style="margin-top:1rem">
+          <button onclick="closeModal()">Cancel</button>
+          <button onclick="saveSettings()">Save</button>
+        </div>
+      </div>
+    </div>`;
+  renderBackendRows(backendsCache.map(b => ({...b, api_key: ''})));
+  renderCommonQuestionRows([...commonQuestionsCache]);
+}
+
+function renderCommonQuestionRows(rows) {
+  const container = document.getElementById('commonQuestionRows');
+  container.innerHTML = rows.map((q, i) => `
+    <div style="display:flex; gap:0.4rem; margin-bottom:0.3rem">
+      <input value="${q}" data-cq="${i}" style="flex:1">
+      <button class="danger" onclick="removeCommonQuestionRow(${i})">Remove</button>
+    </div>`).join('');
+  container.dataset.rows = JSON.stringify(rows);
+  document.getElementById('addCommonQuestionBtn').style.display = rows.length >= 10 ? 'none' : '';
+}
+
+function collectCommonQuestionRows() {
+  const container = document.getElementById('commonQuestionRows');
+  const rows = JSON.parse(container.dataset.rows || '[]');
+  container.querySelectorAll('[data-cq]').forEach(el => { rows[el.dataset.cq] = el.value; });
+  return rows;
+}
+
+function addCommonQuestionRow() {
+  const rows = collectCommonQuestionRows();
+  if (rows.length >= 10) return;
+  rows.push('');
+  renderCommonQuestionRows(rows);
+}
+
+function removeCommonQuestionRow(i) {
+  const rows = collectCommonQuestionRows();
+  rows.splice(i, 1);
+  renderCommonQuestionRows(rows);
+}
+
+function renderBackendRows(rows) {
+  const container = document.getElementById('backendRows');
+  container.innerHTML = rows.map((b, i) => `
+    <div style="border:1px solid var(--border); border-radius:6px; padding:0.6rem; margin-bottom:0.5rem">
+      <div style="display:flex; gap:0.4rem; margin-bottom:0.3rem; flex-wrap:wrap">
+        <input placeholder="id" value="${b.id || ''}" data-field="id" data-i="${i}" style="width:90px; flex:0 0 90px">
+        <input placeholder="label" value="${b.label || ''}" data-field="label" data-i="${i}" style="flex:1">
+        <select data-field="type" data-i="${i}">
+          <option value="openai" ${b.type === 'openai' ? 'selected' : ''}>openai-compatible</option>
+          <option value="anthropic" ${b.type === 'anthropic' ? 'selected' : ''}>anthropic</option>
+        </select>
+      </div>
+      <div style="display:flex; gap:0.4rem; margin-bottom:0.3rem; flex-wrap:wrap">
+        <input placeholder="base_url (openai only)" value="${b.base_url || ''}" data-field="base_url" data-i="${i}" style="flex:1">
+        <span id="model-field-${i}" style="flex:1; display:flex; gap:0.3rem">
+          <input placeholder="model" value="${b.model || ''}" data-field="model" data-i="${i}" style="flex:1">
+        </span>
+        <button title="Load available models from this backend" onclick="probeModelsForRow(${i})">⟳ Load models</button>
+      </div>
+      <div style="display:flex; gap:0.4rem; align-items:center">
+        <input type="password" placeholder="${b.api_key === 'configured' ? 'api key (leave blank to keep existing)' : 'api key'}" data-field="api_key" data-i="${i}" style="flex:1">
+        <label><input type="checkbox" data-field="external" data-i="${i}" ${b.external ? 'checked' : ''}> external</label>
+        <button class="danger" onclick="removeBackendRow(${i})">Remove</button>
+      </div>
+    </div>`).join('');
+  container.dataset.rows = JSON.stringify(rows);
+}
+
+function addBackendRow() {
+  const rows = collectBackendRows();
+  rows.push({ id: '', label: '', type: 'openai', base_url: '', model: '', api_key: '', external: false });
+  renderBackendRows(rows);
+}
+
+function removeBackendRow(i) {
+  const rows = collectBackendRows();
+  rows.splice(i, 1);
+  renderBackendRows(rows);
+}
+
+function collectBackendRows() {
+  const container = document.getElementById('backendRows');
+  const rows = JSON.parse(container.dataset.rows || '[]');
+  container.querySelectorAll('[data-field]').forEach(el => {
+    const i = el.dataset.i, field = el.dataset.field;
+    rows[i][field] = field === 'external' ? el.checked : el.value;
+  });
+  return rows;
+}
+
+async function probeModelsForRow(i) {
+  const rows = collectBackendRows();
+  const b = rows[i];
+  const field = document.getElementById(`model-field-${i}`);
+  field.innerHTML = '<i>Loading models...</i>';
+  const r = await fetch('/api/backends/probe_models', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ id: b.id, type: b.type, base_url: b.base_url, api_key: b.api_key })
+  });
+  const data = await r.json();
+  if (data.error || !data.models || !data.models.length) {
+    field.innerHTML = `<input placeholder="model" value="${b.model || ''}" data-field="model" data-i="${i}" style="flex:1">`;
+    alert(`Couldn't load models: ${data.error || 'none returned'}`);
+    return;
+  }
+  const options = data.models.map(m => `<option value="${m}" ${m === b.model ? 'selected' : ''}>${m}</option>`).join('');
+  field.innerHTML = `<select data-field="model" data-i="${i}" style="flex:1">${options}</select>`;
+  document.getElementById('backendRows').dataset.rows = JSON.stringify(rows);
+}
+
+async function saveSettings() {
+  const rows = collectBackendRows().filter(b => b.id);
+  const questions = collectCommonQuestionRows().map(q => q.trim()).filter(Boolean).slice(0, 10);
+  await fetch('/api/settings', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ backends: rows, default_backend: 'auto', common_questions: questions })
+  });
+  closeModal();
+  loadBackends();
+}
+
+loadBackends();
+refresh();
+renderQuestionHistorySelect();
+</script>
+</body>
+</html>

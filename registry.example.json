@@ -1,0 +1,74 @@
+[
+  {
+    "id": "ollama",
+    "category": "llm-runtime",
+    "kind": "systemd-system",
+    "unit": "ollama.service",
+    "port": 11434,
+    "host": "0.0.0.0",
+    "launch_url": "http://127.0.0.1:11434",
+    "model_dir": "~/.ollama/models",
+    "model_scan": "ollama-cli",
+    "install_paths": ["/usr/local/bin/ollama", "/etc/systemd/system/ollama.service"],
+    "config_paths": ["~/.ollama/config.json"],
+    "uninstall_cmds": [
+      "sudo systemctl disable --now ollama",
+      "sudo rm -f /etc/systemd/system/ollama.service",
+      "sudo rm -f /usr/local/bin/ollama",
+      "rm -rf ~/.ollama"
+    ],
+    "notes": "Example systemd-managed service."
+  },
+  {
+    "id": "open-webui",
+    "category": "chat-ui",
+    "kind": "docker-compose",
+    "compose_file": "~/my-project/docker-compose.yml",
+    "service": "open-webui",
+    "container": "open-webui",
+    "port": 3000,
+    "host": "127.0.0.1",
+    "launch_url": "http://127.0.0.1:3000",
+    "model_dir": null,
+    "model_scan": "none",
+    "install_paths": ["~/my-project/docker-compose.yml"],
+    "config_paths": [],
+    "uninstall_cmds": [
+      "docker compose -f ~/my-project/docker-compose.yml rm -sf open-webui"
+    ],
+    "notes": "Example docker-compose-managed service. Set \"project\" to group several entries under one Projects-tab heading."
+  },
+  {
+    "id": "my-local-server",
+    "category": "image-gen",
+    "kind": "process",
+    "start_cmd": "/home/you/my-app/venv/bin/python /home/you/my-app/server.py",
+    "stop_cmd": null,
+    "status_cmd": "pgrep -f '/home/you/my-app/venv/bin/python /home/you/my-app/server.py'",
+    "port": 8000,
+    "host": "127.0.0.1",
+    "launch_url": "http://127.0.0.1:8000",
+    "model_dir": "~/my-app/models",
+    "model_scan": "dir-glob",
+    "install_paths": ["~/my-app", "~/my-app/venv"],
+    "config_paths": [],
+    "uninstall_cmds": [
+      "pkill -f '/home/you/my-app/venv/bin/python /home/you/my-app/server.py' || true",
+      "rm -rf ~/my-app"
+    ],
+    "notes": "Example bare-process service. Use absolute paths in start_cmd/status_cmd - relative paths make status detection unreliable."
+  },
+  {
+    "id": "my-cli-tool",
+    "category": "agent-cli",
+    "kind": "manual",
+    "port": null,
+    "launch_url": null,
+    "model_dir": null,
+    "model_scan": "none",
+    "install_paths": ["~/.local/bin/my-cli-tool"],
+    "config_paths": ["~/.my-cli-tool/config.yaml"],
+    "uninstall_cmds": ["rm -f ~/.local/bin/my-cli-tool", "rm -rf ~/.my-cli-tool"],
+    "notes": "Example entry for a CLI tool with no running service - status always shows n/a."
+  }
+]
