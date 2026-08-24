@@ -42,6 +42,7 @@
   .meta { font-size: 0.82rem; color: var(--muted); margin: 0.2rem 0; }
   .meta.url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .meta.url a { color: inherit; }
+  .meta.boot { color: var(--models-fg); }
   .models { font-size: 0.78rem; color: var(--models-fg); max-height: 10em; overflow-y: auto; }
   .actions { margin-top: 0.6rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
   .actions button { font-size: 0.78rem; padding: 0.3rem 0.5rem; }
@@ -241,6 +242,7 @@ function renderCard(t) {
     <div class="card">
       <h3><span class="dot ${statusClass}"></span> ${t.id}</h3>
       <div class="meta">${t.category} · ${t.status}${t.port ? ' · port ' + t.port + (t.port_open ? ' (open)' : ' (closed)') : ''}</div>
+      ${t.boot_enabled ? `<div class="meta boot">🔁 ${t.boot_enabled}</div>` : ''}
       ${t.launch_url ? `<div class="meta url"><a href="${t.launch_url}" target="_blank">${t.launch_url}</a></div>` : ''}
       ${t.model_scan !== 'none' ? `<div class="models">${(t.models || []).map(m => '- ' + m).join('<br>') || '<i>no models found</i>'}</div>` : ''}
       <div class="actions">

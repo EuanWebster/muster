@@ -5,7 +5,7 @@ of them. Muster keeps one registry of everything you've got running on your
 machine — model runtimes, agent CLIs, image/video generators, whatever — and
 gives you:
 
-- **Live status** for every tool: running/stopped, port open/closed, models available
+- **Live status** for every tool: running/stopped, port open/closed, models available, whether it's set to start at boot/login (systemd enabled state, or Docker restart policy)
 - **Start / Stop / Launch / Uninstall** from one page, grouped into tabs by category
 - **A Models tab** — every downloaded model across all your tools, with size, path, and which tool(s) use it
 - **A Projects tab** — group tools that belong to the same external project separately from the tool-type tabs
@@ -43,6 +43,12 @@ is the source of truth for what tools exist and how to control them. See
 | `docker-container` | are a plain Docker container |
 | `process` | you start/stop as a bare process (needs `start_cmd`, and a `status_cmd` using **absolute paths** — relative paths make status detection unreliable once something else changes the working directory) |
 | `manual` | have no controllable running state (a CLI tool, a folder of weights) — status always shows `n/a` |
+
+The "starts at boot/login" indicator is only shown for kinds with a real
+mechanism to check: `systemctl is-enabled` for the two systemd kinds, and
+the container's restart policy (`always`/`unless-stopped`) for the two
+Docker kinds. `process`/`manual` entries have no generic equivalent, since
+that would need a separate systemd unit of their own that isn't modeled here.
 
 Add entries by hand, or click **Scan for new tools** in the UI to find
 candidates (Docker containers and executables in `~/.local/bin` not already

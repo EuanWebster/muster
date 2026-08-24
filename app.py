@@ -82,6 +82,35 @@ def check_status(entry: dict) -> str:
     return "unknown"
 
 
+def check_boot_enabled(entry: dict) -> str | None:
+    """Returns a short human label if this tool is set to start at boot/login, else None.
+
+    Only meaningful for kinds with a real boot-start mechanism (systemd unit,
+    Docker restart policy) - process/manual entries have no generic equivalent
+    (they'd need their own separate systemd unit, which isn't modeled here).
+    """
+    kind = entry.get("kind")
+    try:
+        if kind == "systemd-system":
+            r = subprocess.run(["systemctl", "is-enabled", entry["unit"]], capture_output=True, text=True)
+            state = r.stdout.strip()
+            return f"enabled at boot ({state})" if state in ("enabled", "static", "enabled-runtime") else None
+        if kind == "systemd-user":
+            r = subprocess.run(["systemctl", "--user", "is-enabled", entry["unit"]], capture_output=True, text=True)
+            state = r.stdout.strip()
+            return f"enabled at login ({state})" if state in ("enabled", "static", "enabled-runtime") else None
+        if kind in ("docker-compose", "docker-container"):
+            r = subprocess.run(["docker", "inspect", "-f", "{{.HostConfig.RestartPolicy.Name}}", entry["container"]],
+                                capture_output=True, text=True)
+            policy = r.stdout.strip()
+            if policy in ("always", "unless-stopped"):
+                return f"restarts with Docker ({policy})"
+            return None
+    except FileNotFoundError:
+        return None
+    return None
+
+
 def get_models(entry: dict) -> list[str]:
     scan = entry.get("model_scan")
     if scan == "ollama-cli":
@@ -120,6 +149,7 @@ def api_tools():
         e["status"] = check_status(e)
         e["port_open"] = port_open(e.get("host") or "127.0.0.1", e.get("port")) if e.get("port") else None
         e["models"] = get_models(e)
+        e["boot_enabled"] = check_boot_enabled(e)
     return jsonify(entries)
 
 
