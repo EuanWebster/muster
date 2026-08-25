@@ -212,14 +212,17 @@ def api_start(tool_id):
     body = request.get_json(silent=True) or {}
     try:
         if kind == "systemd-system":
-            subprocess.run(["sudo", "systemctl", "start", entry["unit"]], check=True, timeout=15)
+            subprocess.run(["sudo", "systemctl", "start", entry["unit"]], check=True, timeout=15,
+                            capture_output=True, text=True)
         elif kind == "systemd-user":
-            subprocess.run(["systemctl", "--user", "start", entry["unit"]], check=True, timeout=15)
+            subprocess.run(["systemctl", "--user", "start", entry["unit"]], check=True, timeout=15,
+                            capture_output=True, text=True)
         elif kind == "docker-compose":
             subprocess.run(["docker", "compose", "-f", expand(entry["compose_file"]), "up", "-d", entry["service"]],
-                            check=True, timeout=60)
+                            check=True, timeout=60, capture_output=True, text=True)
         elif kind == "docker-container":
-            subprocess.run(["docker", "start", entry["container"]], check=True, timeout=30)
+            subprocess.run(["docker", "start", entry["container"]], check=True, timeout=30,
+                            capture_output=True, text=True)
         elif kind == "process" and entry.get("start_cmd"):
             proc = subprocess.Popen(entry["start_cmd"], shell=True, cwd=Path.home(),
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -260,7 +263,7 @@ def api_start(tool_id):
         else:
             return jsonify({"error": f"no start action for kind={kind}"}), 400
     except subprocess.CalledProcessError as ex:
-        return jsonify({"error": str(ex)}), 500
+        return jsonify({"error": (ex.stderr or ex.stdout or str(ex)).strip()}), 500
     return jsonify({"ok": True})
 
 
@@ -273,19 +276,23 @@ def api_stop(tool_id):
     kind = entry["kind"]
     try:
         if kind == "systemd-system":
-            subprocess.run(["sudo", "systemctl", "stop", entry["unit"]], check=True, timeout=15)
+            subprocess.run(["sudo", "systemctl", "stop", entry["unit"]], check=True, timeout=15,
+                            capture_output=True, text=True)
         elif kind == "systemd-user":
-            subprocess.run(["systemctl", "--user", "stop", entry["unit"]], check=True, timeout=15)
+            subprocess.run(["systemctl", "--user", "stop", entry["unit"]], check=True, timeout=15,
+                            capture_output=True, text=True)
         elif kind == "docker-compose" or kind == "docker-container":
-            subprocess.run(["docker", "stop", entry["container"]], check=True, timeout=30)
+            subprocess.run(["docker", "stop", entry["container"]], check=True, timeout=30,
+                            capture_output=True, text=True)
         elif kind in ("process", "llama-server") and entry.get("stop_cmd"):
-            subprocess.run(shlex.split(entry["stop_cmd"]), check=True, timeout=15)
+            subprocess.run(shlex.split(entry["stop_cmd"]), check=True, timeout=15,
+                            capture_output=True, text=True)
         elif kind in ("process", "llama-server") and entry.get("status_cmd"):
             stop_by_pattern(entry)
         else:
             return jsonify({"error": f"no stop action for kind={kind}"}), 400
     except subprocess.CalledProcessError as ex:
-        return jsonify({"error": str(ex)}), 500
+        return jsonify({"error": (ex.stderr or ex.stdout or str(ex)).strip()}), 500
     return jsonify({"ok": True})
 
 
