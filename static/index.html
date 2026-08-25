@@ -43,7 +43,9 @@
   .meta.url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .meta.url a { color: inherit; }
   .meta.boot { color: var(--models-fg); }
+  .meta.update { color: var(--models-fg); font-weight: 600; }
   .meta.hint { margin-top: 0.6rem; font-style: italic; }
+  .meta.path { font-family: monospace; font-size: 0.74rem; word-break: break-all; }
   .models { font-size: 0.78rem; color: var(--models-fg); max-height: 10em; overflow-y: auto; }
   .actions { margin-top: 0.6rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
   .actions button { font-size: 0.78rem; padding: 0.3rem 0.5rem; }
@@ -160,6 +162,7 @@ let allTools = [];
 let allModels = [];
 let activeTab = null;
 let selectedModels = {};
+let updateStatus = {};
 
 async function loadHardware() {
   const r = await fetch('/api/hardware');
@@ -253,6 +256,15 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
+function renderUpdateStatus(t) {
+  const s = updateStatus[t.id];
+  if (!s) return '';
+  if (s.checking) return `<div class="meta">⟳ checking for updates...</div>`;
+  if (s.error) return `<div class="meta">Update check failed: ${escapeHtml(s.error)}</div>`;
+  if (s.update_available) return `<div class="meta update">⬆ update available: ${s.installed || '?'} → ${s.latest}</div>`;
+  return `<div class="meta">✓ up to date (${s.installed || 'unknown'})</div>`;
+}
+
 function renderCard(t) {
   const statusClass = (t.status || 'unknown').replace('/', '\\/');
   return `
@@ -261,20 +273,69 @@ function renderCard(t) {
       <div class="meta">${t.category} · ${t.status}${t.port ? ' · port ' + t.port + (t.port_open ? ' (open)' : ' (closed)') : ''}</div>
       ${t.boot_enabled ? `<div class="meta boot">🔁 ${t.boot_enabled}</div>` : ''}
       ${t.launch_url ? `<div class="meta url"><a href="${t.launch_url}" target="_blank">${t.launch_url}</a></div>` : ''}
+      ${t.install_paths && t.install_paths.length ? `<div class="meta path">📁 ${t.install_paths.join(', ')}</div>` : ''}
       ${t.kind === 'llama-server'
         ? `<div class="meta">Model: <select id="model-select-${t.id}" onchange="selectedModels['${t.id}']=this.value">${
             (t.models || []).map(m => `<option value="${m}" ${m === selectedModels[t.id] ? 'selected' : ''}>${m}</option>`).join('') || '<option value="">no GGUFs found in HF cache</option>'
           }</select></div>`
         : (t.model_scan !== 'none' ? `<div class="models">${(t.models || []).map(m => '- ' + m).join('<br>') || '<i>no models found</i>'}</div>` : '')}
+      ${renderUpdateStatus(t)}
       <div class="actions">
         ${t.can_start ? `<button onclick="start('${t.id}')">Start</button>` : ''}
         ${t.can_stop ? `<button onclick="stop('${t.id}')">Stop</button>` : ''}
         ${t.launch_url ? `<button onclick="launch('${t.id}')">Launch</button>` : ''}
         ${t.launch_cmd ? `<button onclick="launchTerminal('${t.id}')">Launch in Terminal</button>` : ''}
+        ${t.installed_version_cmd && t.latest_version_cmd ? `<button onclick="checkForUpdate('${t.id}')">Check for updates</button>` : ''}
+        ${updateStatus[t.id] && updateStatus[t.id].update_available && t.update_cmd ? `<button onclick="confirmUpdate('${t.id}')">Update</button>` : ''}
         <button class="danger" onclick="uninstallPreview('${t.id}')">Uninstall</button>
       </div>
       ${(!t.can_start || !t.can_stop) && t.notes ? `<div class="meta hint">ℹ ${escapeHtml(t.notes)}</div>` : ''}
     </div>`;
+}
+
+async function checkForUpdate(id) {
+  updateStatus[id] = {checking: true};
+  renderActiveTab();
+  const r = await fetch(`/api/tools/${id}/check_update`);
+  const j = await r.json();
+  updateStatus[id] = j.error ? {error: j.error} : j;
+  renderActiveTab();
+}
+
+function confirmUpdate(id) {
+  const t = allTools.find(x => x.id === id);
+  const s = updateStatus[id];
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal">
+        <h3>Update ${id}?</h3>
+        <p>${s.installed || '?'} → ${s.latest}. This will run:</p>
+        <pre>${escapeHtml(t.update_cmd)}</pre>
+        <p class="meta hint">ℹ A tool's CLI/flags can change between versions - if Start/Stop misbehave afterwards, check this tool's notes in registry.json and this card's Start/Stop still work before relying on it.</p>
+        <div class="actions" style="margin-top:0.8rem">
+          <button onclick="closeModal()">Cancel</button>
+          <button onclick="runUpdate('${id}')">Run update</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function runUpdate(id) {
+  const root = document.getElementById('modalRoot');
+  root.querySelector('.modal').innerHTML = `<h3>Updating ${id}...</h3><p><i>This can take a while - rebuilds/dependency installs run in the background.</i></p>`;
+  const r = await fetch(`/api/tools/${id}/update`, {method: 'POST'});
+  const j = await r.json();
+  closeModal();
+  if (j.error) {
+    alert(`Update failed: ${j.error}`);
+  } else if (!j.ok) {
+    alert(`Update command exited with code ${j.returncode}:\n\n${j.output}`);
+  } else {
+    alert(`${id} updated (now ${j.new_version || 'unknown version'}).\n\nVerify Start/Stop still work - CLI behavior can change between versions.\n\n${j.output}`);
+  }
+  await checkForUpdate(id);
+  refresh();
 }
 
 async function start(id) {

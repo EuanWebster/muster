@@ -8,6 +8,7 @@ gives you:
 - **Live status** for every tool: running/stopped, port open/closed, models available, whether it's set to start at boot/login (systemd enabled state, or Docker restart policy)
 - **Hardware bar** across the top — GPU/VRAM, RAM, CPU cores, auto-detected on whatever machine it's running on (see `hardware.py`)
 - **Start / Stop / Launch / Uninstall** from one page, grouped into tabs by category
+- **Update checks** — per-tool, on demand: compares the installed version against what's actually latest, with a one-click Update if you've wired up the command (see below)
 - **A Models tab** — every downloaded model across all your tools, with size, path, and which tool(s) use it
 - **A Projects tab** — group tools that belong to the same external project separately from the tool-type tabs
 - **Discovery** — scan for installed things not yet in the registry (Docker containers, `~/.local/bin` executables), add them with one click
@@ -87,6 +88,34 @@ silently on click).
 Needs a `binary` field (path to the `llama-server` executable) instead of
 `start_cmd`, plus the usual `port`/`host`/`status_cmd`. See
 `registry.example.json` for a full annotated entry.
+
+### Update checks
+
+Three optional fields, independent of `kind` - add them to any entry once
+you've hand-verified the commands actually work for that tool:
+
+- `installed_version_cmd` - prints the currently installed version (last non-blank line of stdout is used)
+- `latest_version_cmd` - prints the latest available version, the same way
+- `update_cmd` - actually runs the update
+
+**Check for updates** compares the two strings - any mismatch is shown as
+"update available", so `latest_version_cmd` needs to report the same kind of
+string `installed_version_cmd` does (a git short-hash vs. a semver string
+will always look different). If both are set, the card gets a **Check for
+updates** button; if an update's available and `update_cmd` is also set, an
+**Update** button appears too, with a confirmation dialog showing exactly
+what will run.
+
+**A tool's CLI can change shape between versions** - this happened for real
+during development: `unsloth`'s bare launch command started requiring an
+explicit subcommand after an update, breaking its `start_cmd` silently until
+someone clicked Start and got an error. Muster can't detect that kind of
+breakage automatically (it would mean actually invoking the tool speculatively,
+which isn't something to do without asking), so after running an update it's
+worth clicking Start/Stop once to confirm they still work, and updating
+`start_cmd`/`stop_cmd`/`status_cmd` in `registry.json` if not. Don't wire
+`update_cmd` up for a tool whose update behavior you haven't checked by hand
+first - it runs verbatim, with no extra confirmation beyond the one dialog.
 
 Add entries by hand, or click **Scan for new tools** in the UI to find
 candidates (Docker containers and executables in `~/.local/bin` not already

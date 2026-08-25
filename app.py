@@ -133,6 +133,19 @@ def stop_by_pattern(entry: dict) -> None:
     subprocess.run(["pkill", "-f", pattern])
 
 
+def run_version_cmd(cmd: str | None, timeout: int = 20) -> str | None:
+    """Runs a version-check command (shell, so it can pipe/awk) and returns the
+    last non-empty line of stdout, trimmed - or None if it fails/times out."""
+    if not cmd:
+        return None
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout, cwd=Path.home())
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    lines = [l.strip() for l in r.stdout.splitlines() if l.strip()]
+    return lines[-1] if lines else None
+
+
 def get_models(entry: dict) -> list[str]:
     scan = entry.get("model_scan")
     if scan == "ollama-cli":
@@ -313,6 +326,44 @@ def api_uninstall_confirm(tool_id):
     save_registry(entries)
     obsidian_sync.mark_uninstalled(tool_id)
     return jsonify({"ok": True, "output": output})
+
+
+@app.route("/api/tools/<tool_id>/check_update")
+def api_check_update(tool_id):
+    entries = load_registry()
+    entry = next((e for e in entries if e["id"] == tool_id), None)
+    if not entry:
+        return jsonify({"error": "not found"}), 404
+    if not entry.get("installed_version_cmd") or not entry.get("latest_version_cmd"):
+        return jsonify({"error": "no update check configured for this tool"}), 400
+    installed = run_version_cmd(entry["installed_version_cmd"])
+    latest = run_version_cmd(entry["latest_version_cmd"], timeout=30)
+    return jsonify({
+        "installed": installed,
+        "latest": latest,
+        "update_available": bool(installed and latest and installed != latest),
+    })
+
+
+@app.route("/api/tools/<tool_id>/update", methods=["POST"])
+def api_update(tool_id):
+    entries = load_registry()
+    entry = next((e for e in entries if e["id"] == tool_id), None)
+    if not entry:
+        return jsonify({"error": "not found"}), 404
+    cmd = entry.get("update_cmd")
+    if not cmd:
+        return jsonify({"error": "no update_cmd configured for this tool"}), 400
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=900, cwd=Path.home())
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "update command timed out after 15 minutes"}), 500
+    return jsonify({
+        "ok": r.returncode == 0,
+        "returncode": r.returncode,
+        "output": (r.stdout + r.stderr)[-4000:],
+        "new_version": run_version_cmd(entry.get("installed_version_cmd")),
+    })
 
 
 @app.route("/api/tools/<tool_id>/launch")
