@@ -75,6 +75,7 @@
 </head>
 <body>
 <h1>🚩 Muster <button id="themeToggle" onclick="toggleTheme()"></button></h1>
+<div id="hardwareBar" class="meta" style="margin-bottom:1rem"></div>
 <div class="toolbar">
   <button onclick="refresh()">Refresh</button>
   <button onclick="scan()">Scan for new tools</button>
@@ -158,6 +159,15 @@ const MODELS_TAB = 'Models';
 let allTools = [];
 let allModels = [];
 let activeTab = null;
+let selectedModels = {};
+
+async function loadHardware() {
+  const r = await fetch('/api/hardware');
+  const hw = await r.json();
+  const gpu = hw.gpu_vendor !== 'none' ? `${hw.gpu_name} · ${hw.vram_total_gb} GB VRAM` : 'no GPU detected';
+  document.getElementById('hardwareBar').textContent =
+    `🖥️ ${gpu} · ${hw.ram_total_gb} GB RAM · ${hw.cpu_cores} CPU cores`;
+}
 
 async function refresh() {
   const [toolsRes, modelsRes] = await Promise.all([fetch('/api/tools'), fetch('/api/models')]);
@@ -251,7 +261,11 @@ function renderCard(t) {
       <div class="meta">${t.category} · ${t.status}${t.port ? ' · port ' + t.port + (t.port_open ? ' (open)' : ' (closed)') : ''}</div>
       ${t.boot_enabled ? `<div class="meta boot">🔁 ${t.boot_enabled}</div>` : ''}
       ${t.launch_url ? `<div class="meta url"><a href="${t.launch_url}" target="_blank">${t.launch_url}</a></div>` : ''}
-      ${t.model_scan !== 'none' ? `<div class="models">${(t.models || []).map(m => '- ' + m).join('<br>') || '<i>no models found</i>'}</div>` : ''}
+      ${t.kind === 'llama-server'
+        ? `<div class="meta">Model: <select id="model-select-${t.id}" onchange="selectedModels['${t.id}']=this.value">${
+            (t.models || []).map(m => `<option value="${m}" ${m === selectedModels[t.id] ? 'selected' : ''}>${m}</option>`).join('') || '<option value="">no GGUFs found in HF cache</option>'
+          }</select></div>`
+        : (t.model_scan !== 'none' ? `<div class="models">${(t.models || []).map(m => '- ' + m).join('<br>') || '<i>no models found</i>'}</div>` : '')}
       <div class="actions">
         ${t.can_start ? `<button onclick="start('${t.id}')">Start</button>` : ''}
         ${t.can_stop ? `<button onclick="stop('${t.id}')">Stop</button>` : ''}
@@ -264,7 +278,11 @@ function renderCard(t) {
 }
 
 async function start(id) {
-  const r = await fetch(`/api/tools/${id}/start`, {method: 'POST'});
+  const select = document.getElementById(`model-select-${id}`);
+  const body = select ? {model: select.value} : {};
+  const r = await fetch(`/api/tools/${id}/start`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+  });
   const j = await r.json();
   if (j.error) alert(`Failed to start ${id}:\n\n${j.error}`);
   refresh();
@@ -685,6 +703,7 @@ async function saveSettings() {
 }
 
 loadBackends();
+loadHardware();
 refresh();
 renderQuestionHistorySelect();
 </script>

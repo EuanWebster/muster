@@ -59,6 +59,22 @@
     "notes": "Example bare-process service. Use absolute paths in start_cmd/status_cmd - relative paths make status detection unreliable."
   },
   {
+    "id": "llama.cpp",
+    "category": "llm-runtime",
+    "kind": "llama-server",
+    "binary": "~/llama.cpp/build/bin/llama-server",
+    "status_cmd": "pgrep -f 'llama.cpp/build/bin/llama-server.*--port 8090'",
+    "port": 8090,
+    "host": "127.0.0.1",
+    "launch_url": "http://127.0.0.1:8090",
+    "model_dir": "~/.cache/huggingface/hub",
+    "model_scan": "hf-cache-gguf",
+    "install_paths": ["~/llama.cpp"],
+    "config_paths": [],
+    "uninstall_cmds": ["rm -rf ~/llama.cpp"],
+    "notes": "Example llama-server entry. Start shows a dropdown of downloaded GGUFs (from model_scan) and builds the command itself, adding GPU-offload flags from hardware.py's detection of this machine - no start_cmd needed."
+  },
+  {
     "id": "my-cli-tool",
     "category": "agent-cli",
     "kind": "manual",

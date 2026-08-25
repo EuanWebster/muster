@@ -6,6 +6,7 @@ machine — model runtimes, agent CLIs, image/video generators, whatever — and
 gives you:
 
 - **Live status** for every tool: running/stopped, port open/closed, models available, whether it's set to start at boot/login (systemd enabled state, or Docker restart policy)
+- **Hardware bar** across the top — GPU/VRAM, RAM, CPU cores, auto-detected on whatever machine it's running on (see `hardware.py`)
 - **Start / Stop / Launch / Uninstall** from one page, grouped into tabs by category
 - **A Models tab** — every downloaded model across all your tools, with size, path, and which tool(s) use it
 - **A Projects tab** — group tools that belong to the same external project separately from the tool-type tabs
@@ -42,6 +43,7 @@ is the source of truth for what tools exist and how to control them. See
 | `docker-compose` | are one service in a `docker-compose.yml` |
 | `docker-container` | are a plain Docker container |
 | `process` | you start/stop as a bare process (needs `start_cmd`, and a `status_cmd` using **absolute paths** — relative paths make status detection unreliable once something else changes the working directory) |
+| `llama-server` | a `llama-server` binary that takes a model path at start time instead of a fixed `start_cmd` — see below |
 | `manual` | have no controllable running state (a CLI tool, a folder of weights) — status always shows `n/a` |
 
 The "starts at boot/login" indicator is only shown for kinds with a real
@@ -61,6 +63,30 @@ tab — use whichever one actually matches how the tool is used; several CLI
 tools (e.g. `dsh`, `hermes-agent`) turn out to have their own local web
 dashboards worth wiring up as `process` entries with a real `launch_url`
 instead of treating them as bare unlaunchable CLIs.
+
+### The `llama-server` kind
+
+Unlike the other kinds, `llama-server` has no fixed `start_cmd` — `llama.cpp`'s
+server takes the model to load as a `-m` flag at process start, so Muster
+needs to know *which* model before it can build the command. The card shows
+a dropdown (populated the same way as `model_scan: "hf-cache-gguf"` for any
+other tool) instead of a read-only model list; picking one and clicking
+**Start** builds `llama-server -m <path> --alias <repo:quant> --host --port`
+plus GPU-offload flags from `hardware.py`'s detection of *this* machine
+(`-ngl 999` if a GPU is present, `-ngl 0` otherwise, `--threads` = CPU core
+count) — so the same registry entry works unmodified on a different box.
+`--alias` keeps the model's reported name as `repo:quant` instead of the
+resolved HF-cache blob path (which is an unreadable hash).
+
+Starting while an instance is already running swaps models cleanly: Muster
+stops the old process and waits for the port to free before launching the
+new one, rather than requiring a manual Stop first (a second `llama-server`
+can't bind the same port, so without this the old model would keep serving
+silently on click).
+
+Needs a `binary` field (path to the `llama-server` executable) instead of
+`start_cmd`, plus the usual `port`/`host`/`status_cmd`. See
+`registry.example.json` for a full annotated entry.
 
 Add entries by hand, or click **Scan for new tools** in the UI to find
 candidates (Docker containers and executables in `~/.local/bin` not already

@@ -16,6 +16,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 import agent_models
 import discover
+import hardware
 import hf_scan
 import model_inventory
 import obsidian_sync
@@ -70,7 +71,7 @@ def check_status(entry: dict) -> str:
             if r.returncode != 0:
                 return "stopped"  # container doesn't exist yet, e.g. portainer
             return "running" if r.stdout.strip() == "true" else "stopped"
-        if kind == "process":
+        if kind in ("process", "llama-server"):
             cmd = entry.get("status_cmd")
             if cmd:
                 r = subprocess.run(shlex.split(cmd), capture_output=True, text=True)
@@ -88,11 +89,11 @@ def capabilities(entry: dict) -> dict:
     dispatch logic in api_start/api_stop exactly, without running anything.
     Lets the UI hide/replace buttons that would just error on click."""
     kind = entry.get("kind")
-    can_start = kind in ("systemd-system", "systemd-user", "docker-compose", "docker-container") or (
+    can_start = kind in ("systemd-system", "systemd-user", "docker-compose", "docker-container", "llama-server") or (
         kind == "process" and bool(entry.get("start_cmd"))
     )
     can_stop = kind in ("systemd-system", "systemd-user", "docker-compose", "docker-container") or (
-        kind == "process" and bool(entry.get("stop_cmd") or entry.get("status_cmd"))
+        kind in ("process", "llama-server") and bool(entry.get("stop_cmd") or entry.get("status_cmd"))
     )
     return {"can_start": can_start, "can_stop": can_stop}
 
@@ -126,6 +127,12 @@ def check_boot_enabled(entry: dict) -> str | None:
     return None
 
 
+def stop_by_pattern(entry: dict) -> None:
+    """Best-effort kill by the same pattern status_cmd uses to detect it's running."""
+    pattern = entry["status_cmd"].replace("pgrep -f ", "").strip("'\"")
+    subprocess.run(["pkill", "-f", pattern])
+
+
 def get_models(entry: dict) -> list[str]:
     scan = entry.get("model_scan")
     if scan == "ollama-cli":
@@ -157,6 +164,11 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
+@app.route("/api/hardware")
+def api_hardware():
+    return jsonify(hardware.detect())
+
+
 @app.route("/api/tools")
 def api_tools():
     entries = load_registry()
@@ -184,6 +196,7 @@ def api_start(tool_id):
     if not entry:
         return jsonify({"error": "not found"}), 404
     kind = entry["kind"]
+    body = request.get_json(silent=True) or {}
     try:
         if kind == "systemd-system":
             subprocess.run(["sudo", "systemctl", "start", entry["unit"]], check=True, timeout=15)
@@ -201,6 +214,32 @@ def api_start(tool_id):
             # Most launch failures (missing deps, wrong path, bad venv) surface within
             # a couple seconds - catch those and report them instead of failing silently.
             # A real server that's still booting after this is assumed to be fine.
+            time.sleep(2)
+            if proc.poll() is not None:
+                output = proc.stdout.read()[-2000:]
+                return jsonify({"error": f"Process exited immediately (code {proc.returncode}):\n{output}"}), 500
+        elif kind == "llama-server":
+            model_key = body.get("model")
+            if not model_key:
+                return jsonify({"error": "pick a model first"}), 400
+            record = next((r for r in hf_scan.scan_gguf_detailed() if r["key"] == model_key), None)
+            if not record:
+                return jsonify({"error": f"model not found in HF cache: {model_key}"}), 404
+            binary = expand(entry["binary"])
+            if not Path(binary).exists():
+                return jsonify({"error": f"llama-server binary not found: {binary}"}), 500
+            # Switching models: a second llama-server can't bind the same port, so
+            # replace the running one instead of leaving it serving the old model.
+            if check_status(entry) == "running":
+                stop_by_pattern(entry)
+                for _ in range(20):
+                    if not port_open(entry.get("host") or "127.0.0.1", entry["port"]):
+                        break
+                    time.sleep(0.25)
+            cmd = [binary, "-m", record["path"], "--alias", model_key, "--host", entry.get("host", "127.0.0.1"),
+                   "--port", str(entry["port"])] + hardware.llama_server_flags(hardware.detect())
+            proc = subprocess.Popen(cmd, cwd=Path.home(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     text=True, start_new_session=True)
             time.sleep(2)
             if proc.poll() is not None:
                 output = proc.stdout.read()[-2000:]
@@ -226,12 +265,10 @@ def api_stop(tool_id):
             subprocess.run(["systemctl", "--user", "stop", entry["unit"]], check=True, timeout=15)
         elif kind == "docker-compose" or kind == "docker-container":
             subprocess.run(["docker", "stop", entry["container"]], check=True, timeout=30)
-        elif kind == "process" and entry.get("stop_cmd"):
+        elif kind in ("process", "llama-server") and entry.get("stop_cmd"):
             subprocess.run(shlex.split(entry["stop_cmd"]), check=True, timeout=15)
-        elif kind == "process" and entry.get("status_cmd"):
-            # best effort: kill by the same pattern used to detect it's running
-            pattern = entry["status_cmd"].replace("pgrep -f ", "").strip("'\"")
-            subprocess.run(["pkill", "-f", pattern])
+        elif kind in ("process", "llama-server") and entry.get("status_cmd"):
+            stop_by_pattern(entry)
         else:
             return jsonify({"error": f"no stop action for kind={kind}"}), 400
     except subprocess.CalledProcessError as ex:
