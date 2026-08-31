@@ -95,7 +95,11 @@ def capabilities(entry: dict) -> dict:
     can_stop = kind in ("systemd-system", "systemd-user", "docker-compose", "docker-container") or (
         kind in ("process", "llama-server") and bool(entry.get("stop_cmd") or entry.get("status_cmd"))
     )
-    return {"can_start": can_start, "can_stop": can_stop}
+    # Same kinds check_boot_enabled can report on - the ones with a real
+    # boot mechanism to toggle. process/llama-server can start and stop but
+    # have nothing generic to enable, so they get no checkbox.
+    can_boot = kind in ("systemd-system", "systemd-user", "docker-compose", "docker-container")
+    return {"can_start": can_start, "can_stop": can_stop, "can_boot": can_boot}
 
 
 def check_boot_enabled(entry: dict) -> str | None:
@@ -202,14 +206,41 @@ def api_models():
     return jsonify(model_inventory.gather(entries))
 
 
-@app.route("/api/tools/<tool_id>/start", methods=["POST"])
-def api_start(tool_id):
-    entries = load_registry()
-    entry = next((e for e in entries if e["id"] == tool_id), None)
-    if not entry:
-        return jsonify({"error": "not found"}), 404
+LOG_DIR = Path.home() / ".cache" / "muster" / "logs"
+
+
+def spawn_logged(cmd, name: str, shell: bool = False) -> str | None:
+    """Start a background process, logging to a file rather than a pipe.
+
+    stdout MUST NOT be subprocess.PIPE: nothing drains it after the liveness
+    check below, so the child deadlocks the moment it fills the 64K kernel pipe
+    buffer (Unsloth Studio managed that in ~7 minutes of logging, taking its
+    HTTP loop down with it). A file never blocks the writer.
+
+    Most launch failures (missing deps, wrong path, bad venv) surface within a
+    couple seconds - catch those and report them instead of failing silently.
+    A real server that's still booting after this is assumed to be fine.
+    """
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = LOG_DIR / f"{name}.log"
+    with open(log_path, "w") as log:
+        proc = subprocess.Popen(cmd, shell=shell, cwd=Path.home(), stdout=log,
+                                stderr=subprocess.STDOUT, text=True, start_new_session=True)
+    time.sleep(2)
+    if proc.poll() is not None:
+        return (f"Process exited immediately (code {proc.returncode}):\n"
+                + log_path.read_text(errors="replace")[-2000:])
+    return None
+
+
+def start_entry(entry: dict, model_key: str | None = None) -> str | None:
+    """Starts one registry entry. Returns an error message, or None on success.
+
+    Split out of api_start so an agent entry can bring up its inference engine
+    through exactly the same dispatch instead of a second copy of it.
+    """
     kind = entry["kind"]
-    body = request.get_json(silent=True) or {}
+    body = {"model": model_key}
     try:
         if kind == "systemd-system":
             subprocess.run(["sudo", "systemctl", "start", entry["unit"]], check=True, timeout=15,
@@ -224,26 +255,19 @@ def api_start(tool_id):
             subprocess.run(["docker", "start", entry["container"]], check=True, timeout=30,
                             capture_output=True, text=True)
         elif kind == "process" and entry.get("start_cmd"):
-            proc = subprocess.Popen(entry["start_cmd"], shell=True, cwd=Path.home(),
-                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                     start_new_session=True)
-            # Most launch failures (missing deps, wrong path, bad venv) surface within
-            # a couple seconds - catch those and report them instead of failing silently.
-            # A real server that's still booting after this is assumed to be fine.
-            time.sleep(2)
-            if proc.poll() is not None:
-                output = proc.stdout.read()[-2000:]
-                return jsonify({"error": f"Process exited immediately (code {proc.returncode}):\n{output}"}), 500
+            err = spawn_logged(entry["start_cmd"], entry["id"], shell=True)
+            if err:
+                return err
         elif kind == "llama-server":
             model_key = body.get("model")
             if not model_key:
-                return jsonify({"error": "pick a model first"}), 400
+                return "pick a model first"
             record = next((r for r in hf_scan.scan_gguf_detailed() if r["key"] == model_key), None)
             if not record:
-                return jsonify({"error": f"model not found in HF cache: {model_key}"}), 404
+                return f"model not found in HF cache: {model_key}"
             binary = expand(entry["binary"])
             if not Path(binary).exists():
-                return jsonify({"error": f"llama-server binary not found: {binary}"}), 500
+                return f"llama-server binary not found: {binary}"
             # Switching models: a second llama-server can't bind the same port, so
             # replace the running one instead of leaving it serving the old model.
             if check_status(entry) == "running":
@@ -252,19 +276,82 @@ def api_start(tool_id):
                     if not port_open(entry.get("host") or "127.0.0.1", entry["port"]):
                         break
                     time.sleep(0.25)
+            # --jinja: use the model's own chat template, so a reasoning model's
+            # thinking comes back in reasoning_content instead of inline in content,
+            # and per-request chat_template_kwargs (enable_thinking, reasoning_effort)
+            # actually reach the template.
             cmd = [binary, "-m", record["path"], "--alias", model_key, "--host", entry.get("host", "127.0.0.1"),
-                   "--port", str(entry["port"])] + hardware.llama_server_flags(hardware.detect())
-            proc = subprocess.Popen(cmd, cwd=Path.home(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     text=True, start_new_session=True)
-            time.sleep(2)
-            if proc.poll() is not None:
-                output = proc.stdout.read()[-2000:]
-                return jsonify({"error": f"Process exited immediately (code {proc.returncode}):\n{output}"}), 500
+                   "--port", str(entry["port"]), "--jinja"] + hardware.llama_server_flags(hardware.detect())
+            # Per-model flags: speculative decoding is architecture-specific (draft-mtp
+            # only loads on models with MTP heads), so it can't be a blanket flag or every
+            # non-MTP model in the dropdown fails to load. "default" applies to the rest.
+            model_args = entry.get("model_args") or {}
+            cmd += [str(a) for a in model_args.get(model_key, model_args.get("default", []))]
+            err = spawn_logged(cmd, entry["id"])
+            if err:
+                return err
         else:
-            return jsonify({"error": f"no start action for kind={kind}"}), 400
+            return f"no start action for kind={kind}"
     except subprocess.CalledProcessError as ex:
-        return jsonify({"error": (ex.stderr or ex.stdout or str(ex)).strip()}), 500
+        return (ex.stderr or ex.stdout or str(ex)).strip()
+    return None
+
+
+@app.route("/api/tools/<tool_id>/start", methods=["POST"])
+def api_start(tool_id):
+    entries = load_registry()
+    entry = next((e for e in entries if e["id"] == tool_id), None)
+    if not entry:
+        return jsonify({"error": "not found"}), 404
+    body = request.get_json(silent=True) or {}
+    err = prepare_engine(entry, body, entries) or start_entry(entry, body.get("model"))
+    if err:
+        return jsonify({"error": err}), 500
     return jsonify({"ok": True})
+
+
+def prepare_engine(agent: dict, body: dict, entries: list[dict]) -> str | None:
+    """For an agent entry declaring `engines`: bring up the chosen inference
+    engine on the chosen model and point the agent's own config at it.
+
+    Returns an error message, or None (including when no engine was chosen, so
+    an agent can still be started the plain way).
+    """
+    engine_id = body.get("engine")
+    if not engine_id:
+        return None
+    if engine_id not in (agent.get("engines") or []):
+        return f"{agent['id']} is not configured to use engine '{engine_id}'"
+    engine = next((e for e in entries if e["id"] == engine_id), None)
+    if not engine:
+        return f"engine not in registry: {engine_id}"
+    model_key = body.get("model")
+    if not model_key:
+        return "pick a model first"
+
+    # llama-server takes its model at launch, so it always gets (re)started to
+    # guarantee the chosen one is what's actually serving. Studio loads models
+    # on demand, so leave it alone if it's already up.
+    if engine["kind"] == "llama-server" or check_status(engine) != "running":
+        err = start_entry(engine, model_key)
+        if err:
+            return f"failed to start {engine_id}: {err}"
+
+    host, port = engine.get("host") or "127.0.0.1", engine.get("port")
+    if port:
+        # llama-server only binds the port once the model is loaded - a big
+        # quant off a cold cache is minutes, not seconds.
+        for _ in range(360):
+            if port_open(host, port):
+                break
+            time.sleep(0.5)
+        else:
+            return f"{engine_id} did not open port {port} in time"
+
+    # Studio advertises a repo id and picks the quant itself; llama-server is
+    # launched with --alias <repo:quant>, so there the full key is the model id.
+    served = model_key if engine["kind"] == "llama-server" else model_key.split(":")[0]
+    return agent_models.set_backend(agent["id"], f"http://{host}:{port}/v1", served)
 
 
 @app.route("/api/tools/<tool_id>/stop", methods=["POST"])
@@ -294,6 +381,38 @@ def api_stop(tool_id):
     except subprocess.CalledProcessError as ex:
         return jsonify({"error": (ex.stderr or ex.stdout or str(ex)).strip()}), 500
     return jsonify({"ok": True})
+
+
+@app.route("/api/tools/<tool_id>/boot", methods=["POST"])
+def api_boot(tool_id):
+    """Enable/disable start-at-boot for the kinds that have a real mechanism.
+
+    Deliberately does not touch the running state: enabling a stopped service
+    doesn't start it, disabling a running one doesn't stop it - same split
+    systemctl itself uses between enable and start.
+    """
+    entries = load_registry()
+    entry = next((e for e in entries if e["id"] == tool_id), None)
+    if not entry:
+        return jsonify({"error": "not found"}), 404
+    kind = entry["kind"]
+    enabled = bool((request.get_json(silent=True) or {}).get("enabled"))
+    try:
+        if kind == "systemd-system":
+            subprocess.run(["sudo", "systemctl", "enable" if enabled else "disable", entry["unit"]],
+                            check=True, timeout=15, capture_output=True, text=True)
+        elif kind == "systemd-user":
+            subprocess.run(["systemctl", "--user", "enable" if enabled else "disable", entry["unit"]],
+                            check=True, timeout=15, capture_output=True, text=True)
+        elif kind in ("docker-compose", "docker-container"):
+            policy = "unless-stopped" if enabled else "no"
+            subprocess.run(["docker", "update", f"--restart={policy}", entry["container"]],
+                            check=True, timeout=30, capture_output=True, text=True)
+        else:
+            return jsonify({"error": f"no boot toggle for kind={kind}"}), 400
+    except subprocess.CalledProcessError as ex:
+        return jsonify({"error": (ex.stderr or ex.stdout or str(ex)).strip()}), 500
+    return jsonify({"ok": True, "boot_enabled": check_boot_enabled(entry)})
 
 
 @app.route("/api/tools/<tool_id>/uninstall/preview", methods=["POST"])
@@ -388,6 +507,10 @@ def api_launch_terminal(tool_id):
     entry = next((e for e in entries if e["id"] == tool_id), None)
     if not entry or not entry.get("launch_cmd"):
         return jsonify({"error": "no launch_cmd for this tool"}), 404
+    # A terminal-launched agent picks its engine the same way a started one does.
+    err = prepare_engine(entry, request.get_json(silent=True) or {}, entries)
+    if err:
+        return jsonify({"error": err}), 500
     # Keep the window open after the command exits (fast exit/error shouldn't
     # just vanish the terminal before you can read it). Passed as separate
     # argv elements (via "--") rather than one shell string, so nothing here

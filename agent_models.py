@@ -46,6 +46,66 @@ def hermes_models() -> list[str]:
     return result
 
 
+def set_backend(agent_id: str, base_url: str, model_id: str) -> str | None:
+    """Point one agent CLI at an OpenAI-compatible endpoint + model.
+
+    Returns an error message, or None on success. One writer per tool, same as
+    the readers above - the config formats have nothing worth abstracting over.
+    Everything not related to the endpoint (thinking/compat settings, installed
+    packages, UI state) is preserved as-is.
+    """
+    if agent_id == "dsh":
+        p = Path("~/.dsh/settings.yaml").expanduser()
+        data = _load_yaml(str(p))
+        providers = data.setdefault("llm-pi-ai", {}).setdefault("providers", {})
+        # Route key must be one pi-ai's catalog does NOT ship: under a catalog
+        # key ("openai", "anthropic", ...) a `models` list only narrows that
+        # catalog, so a local model id resolves to nothing and the picker comes
+        # up empty. A hand-declared route needs `api` and `baseURL` explicitly.
+        provider = providers.setdefault("muster", providers.pop("openai", {}))
+        provider["baseURL"] = base_url
+        provider["api"] = "openai-completions"
+        provider.setdefault("apiKeyEnv", "OPENAI_API_KEY")
+        models = provider.get("models") or [{}]
+        models[0] = {**models[0], "id": model_id}
+        provider["models"] = models
+        default = data.setdefault("agent-default-model", {})
+        default["provider"], default["model"] = "muster", model_id
+        p.write_text(yaml.safe_dump(data, sort_keys=False))
+        return None
+
+    if agent_id == "pi":
+        models_path = Path("~/.pi/agent/models.json").expanduser()
+        settings_path = Path("~/.pi/agent/settings.json").expanduser()
+        if not models_path.exists():
+            return f"pi config not found: {models_path}"
+        data = json.loads(models_path.read_text())
+        providers = data.setdefault("providers", {})
+        # Reuse whichever provider block exists as the template so the model's
+        # reasoning/compat/context settings survive an endpoint change.
+        template = next(iter(providers.values()), {})
+        model_template = (template.get("models") or [{}])[0]
+        providers["muster"] = {
+            **template,
+            "baseUrl": base_url,
+            "api": "openai-completions",
+            # llama-server takes no real auth. Always a literal placeholder here
+            # (not templated) - an env-var reference like $UNSLOTH_API_KEY can
+            # silently fail to resolve depending on how pi's shell was launched
+            # (e.g. .bashrc's interactive-shell guard skips it in some paths),
+            # which hides every model from `/model` with no clear error.
+            "apiKey": "local-llama-cpp",
+            "models": [{**model_template, "id": model_id}],
+        }
+        models_path.write_text(json.dumps(data, indent=2) + "\n")
+        settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
+        settings["defaultProvider"], settings["defaultModel"] = "muster", model_id
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+        return None
+
+    return f"no backend writer for agent '{agent_id}'"
+
+
 def ollama_integration_models(integration_key: str) -> list[str]:
     p = Path("~/.ollama/config.json").expanduser()
     if not p.exists():

@@ -162,15 +162,20 @@ let allTools = [];
 let allModels = [];
 let activeTab = null;
 let selectedModels = {};
+let selectedEngines = {};
+let selectedEngineModels = {};
 let updateStatus = {};
 
 async function loadHardware() {
   const r = await fetch('/api/hardware');
   const hw = await r.json();
-  const gpu = hw.gpu_vendor !== 'none' ? `${hw.gpu_name} · ${hw.vram_total_gb} GB VRAM` : 'no GPU detected';
+  const gpu = hw.gpu_vendor !== 'none'
+    ? `${hw.gpu_name} · VRAM ${hw.vram_used_gb}/${hw.vram_total_gb} GB · GPU ${hw.gpu_util_pct}%`
+    : 'no GPU detected';
   document.getElementById('hardwareBar').textContent =
-    `🖥️ ${gpu} · ${hw.ram_total_gb} GB RAM · ${hw.cpu_cores} CPU cores`;
+    `🖥️ ${gpu} · RAM ${hw.ram_used_gb}/${hw.ram_total_gb} GB · CPU ${hw.cpu_load_pct}% (${hw.cpu_cores} cores)`;
 }
+setInterval(loadHardware, 3000);
 
 async function refresh() {
   const [toolsRes, modelsRes] = await Promise.all([fetch('/api/tools'), fetch('/api/models')]);
@@ -265,13 +270,37 @@ function renderUpdateStatus(t) {
   return `<div class="meta">✓ up to date (${s.installed || 'unknown'})</div>`;
 }
 
+// Engine picker for agent CLIs: which inference engine to bring up, and on
+// which model. Model options come straight off the engine's own card data, so
+// there's no second scanner to keep in sync.
+function renderEnginePicker(t) {
+  const engineId = selectedEngines[t.id] || t.engines[0];
+  const engine = allTools.find(x => x.id === engineId) || {};
+  const models = engine.models || [];
+  if (!selectedEngines[t.id]) selectedEngines[t.id] = engineId;
+  return `
+    <div class="meta">Engine:
+      <select onchange="selectedEngines['${t.id}']=this.value; selectedEngineModels['${t.id}']=null; renderActiveTab()">
+        ${t.engines.map(e => `<option value="${e}" ${e === engineId ? 'selected' : ''}>${e}</option>`).join('')}
+      </select>
+    </div>
+    <div class="meta">Model:
+      <select id="engine-model-${t.id}" onchange="selectedEngineModels['${t.id}']=this.value">
+        ${models.map(m => `<option value="${m}" ${m === selectedEngineModels[t.id] ? 'selected' : ''}>${m}</option>`).join('')
+          || '<option value="">no models found for this engine</option>'}
+      </select>
+    </div>`;
+}
+
 function renderCard(t) {
   const statusClass = (t.status || 'unknown').replace('/', '\\/');
   return `
     <div class="card">
       <h3><span class="dot ${statusClass}"></span> ${t.id}</h3>
       <div class="meta">${t.category} · ${t.status}${t.port ? ' · port ' + t.port + (t.port_open ? ' (open)' : ' (closed)') : ''}</div>
-      ${t.boot_enabled ? `<div class="meta boot">🔁 ${t.boot_enabled}</div>` : ''}
+      ${t.can_boot
+        ? `<div class="meta boot"><label><input type="checkbox" onchange="setBoot('${t.id}', this)" ${t.boot_enabled ? 'checked' : ''}> start at boot${t.boot_enabled ? ` (${escapeHtml(t.boot_enabled)})` : ''}</label></div>`
+        : (t.boot_enabled ? `<div class="meta boot">🔁 ${t.boot_enabled}</div>` : '')}
       ${t.launch_url ? `<div class="meta url"><a href="${t.launch_url}" target="_blank">${t.launch_url}</a></div>` : ''}
       ${t.install_paths && t.install_paths.length ? `<div class="meta path">📁 ${t.install_paths.join(', ')}</div>` : ''}
       ${t.kind === 'llama-server'
@@ -279,10 +308,12 @@ function renderCard(t) {
             (t.models || []).map(m => `<option value="${m}" ${m === selectedModels[t.id] ? 'selected' : ''}>${m}</option>`).join('') || '<option value="">no GGUFs found in HF cache</option>'
           }</select></div>`
         : (t.model_scan !== 'none' ? `<div class="models">${(t.models || []).map(m => '- ' + m).join('<br>') || '<i>no models found</i>'}</div>` : '')}
+      ${t.engines && t.engines.length ? renderEnginePicker(t) : ''}
       ${renderUpdateStatus(t)}
       <div class="actions">
         ${t.can_start ? `<button onclick="start('${t.id}')">Start</button>` : ''}
         ${t.can_stop ? `<button onclick="stop('${t.id}')">Stop</button>` : ''}
+        ${t.can_start && t.can_stop ? `<button onclick="restart('${t.id}')">Restart</button>` : ''}
         ${t.launch_url ? `<button onclick="launch('${t.id}')">Launch</button>` : ''}
         ${t.launch_cmd ? `<button onclick="launchTerminal('${t.id}')">Launch in Terminal</button>` : ''}
         ${t.installed_version_cmd && t.latest_version_cmd ? `<button onclick="checkForUpdate('${t.id}')">Check for updates</button>` : ''}
@@ -338,9 +369,17 @@ async function runUpdate(id) {
   refresh();
 }
 
-async function start(id) {
+// An agent card's engine picker and a llama-server card's model dropdown both
+// feed the same {engine, model} body; only one of them exists per card.
+function startBody(id) {
+  const engineModel = document.getElementById(`engine-model-${id}`);
+  if (engineModel) return {engine: selectedEngines[id], model: engineModel.value};
   const select = document.getElementById(`model-select-${id}`);
-  const body = select ? {model: select.value} : {};
+  return select ? {model: select.value} : {};
+}
+
+async function start(id) {
+  const body = startBody(id);
   const r = await fetch(`/api/tools/${id}/start`, {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
   });
@@ -354,6 +393,31 @@ async function stop(id) {
   if (j.error) alert(`Failed to stop ${id}:\n\n${j.error}`);
   refresh();
 }
+// ponytail: restart is just stop-then-start against the existing endpoints, not a
+// backend route of its own - swap in `systemctl restart` if the gap between the two
+// (or a slow stop) ever matters.
+async function restart(id) {
+  const stopRes = await fetch(`/api/tools/${id}/stop`, {method: 'POST'});
+  const stopped = await stopRes.json();
+  if (stopped.error) { alert(`Failed to restart ${id} (stop step):\n\n${stopped.error}`); refresh(); return; }
+  await start(id);
+}
+
+async function setBoot(id, box) {
+  box.disabled = true;
+  const r = await fetch(`/api/tools/${id}/boot`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({enabled: box.checked})
+  });
+  const j = await r.json();
+  if (j.error) {
+    alert(`Failed to ${box.checked ? 'enable' : 'disable'} start at boot for ${id}:\n\n${j.error}`);
+    box.checked = !box.checked;
+  }
+  box.disabled = false;
+  refresh();
+}
+
 async function launch(id) {
   const r = await fetch(`/api/tools/${id}/launch`);
   const j = await r.json();
@@ -361,7 +425,9 @@ async function launch(id) {
 }
 
 async function launchTerminal(id) {
-  const r = await fetch(`/api/tools/${id}/launch_terminal`, {method: 'POST'});
+  const r = await fetch(`/api/tools/${id}/launch_terminal`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(startBody(id))
+  });
   const j = await r.json();
   if (j.error) alert(`Couldn't open a terminal: ${j.error}`);
 }
